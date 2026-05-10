@@ -1,8 +1,21 @@
 import { Injectable } from '@nestjs/common';
 
+import { createAsyncConcurrencyLimiter } from '../shared/concurrency-limiter';
+
+function parseLlmConcurrent(): number {
+  const n = Number(process.env.LLM_MAX_CONCURRENT ?? 16);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 16;
+}
+
 @Injectable()
 export class LlmService {
+  private readonly runWithLlmLimit = createAsyncConcurrencyLimiter(parseLlmConcurrent());
+
   async answer(question: string, contexts: string[]): Promise<string> {
+    return this.runWithLlmLimit(() => this.executeAnswer(question, contexts));
+  }
+
+  private async executeAnswer(question: string, contexts: string[]): Promise<string> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return `LLM API 키가 설정되지 않았습니다. 검색된 컨텍스트:\n\n${contexts.slice(0, 3).join('\n\n---\n\n')}`;
@@ -103,6 +116,10 @@ export class LlmService {
   }
 
   async answerGeneral(question: string): Promise<string> {
+    return this.runWithLlmLimit(() => this.executeAnswerGeneral(question));
+  }
+
+  private async executeAnswerGeneral(question: string): Promise<string> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return 'LLM API 키가 설정되지 않아 일반 지식 답변을 생성할 수 없습니다.';

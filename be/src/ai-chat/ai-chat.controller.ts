@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { join } from 'node:path';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UserJwtThrottlerGuard } from '../auth/user-jwt-throttler.guard';
 import { AiChatService } from './ai-chat.service';
 import { AskDto } from './dto/ask.dto';
 
@@ -46,7 +48,8 @@ export class AiChatController {
   }
 
   @Post('search')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserJwtThrottlerGuard)
+  @Throttle({ aiChatBurst: {}, aiChatWindow: {} })
   search(@Body() dto: AskDto) {
     const defaultTopK = Number(process.env.AI_CHAT_TOP_K ?? 10);
     return this.aiChatService.search(
@@ -58,7 +61,8 @@ export class AiChatController {
   }
 
   @Post('ask')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserJwtThrottlerGuard)
+  @Throttle({ aiChatBurst: {}, aiChatWindow: {} })
   ask(
     @Req() req: { user?: { sub: string } },
     @Body() dto: AskDto,

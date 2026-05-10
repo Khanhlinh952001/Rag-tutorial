@@ -1,0 +1,11 @@
+{
+  "name": "rag-tutorial-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.16.1",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./be --filter ./fe dev",
+    "start": "pnpm -r --parallel --filter ./be --filter ./fe start",
+    "build": "pnpm -r --filter ./be --filter ./fe build",
+    "lint": "pnpm -r --filter ./fe lint"
+  }
+}
