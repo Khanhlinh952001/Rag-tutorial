@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ExternalDbType {
+  POSTGRES
+  MYSQL
+  SQLITE
+}
+
+model User {
+  id       String   @id @default(cuid())
+  email    String   @unique
+  password String
+  name     String?
+  role     UserRole @default(USER)
+
+  conversations Conversation[]
+  documents     Document[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  aiusages  AIUsage[]
+}
+
+model Document {
+  id String @id @default(cuid())
+
+  title        String
+  originalName String
+  filePath     String
+  mimeType     String
+  fileSize     Int
+
+  status DocumentStatus @default(PENDING)
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  chunks DocumentChunk[]
+
+  totalChunks Int @default(0)
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  processingJobs ProcessingJob[]
+
+  @@index([status])
+}
+
+model DocumentChunk {
+  id String @id @default(cuid())
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  chunkIndex Int
+
+  content String
+
+  tokenCount Int?
+
+  metadata Json?
+
+  vectorId String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([documentId])
+  @@index([chunkIndex])
+}
+
+model Conversation {
+  id String @id @default(cuid())
+
+  title String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  messages Message[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  aiusages  AIUsage[]
+
+  @@index([userId])
+}
+
+model Message {
+  id String @id @default(cuid())
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role MessageRole
+
+  content String
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+model ProcessingJob {
+  id String @id @default(cuid())
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  status DocumentStatus @default(PENDING)
+
+  currentStep String?
+
+  errorMessage String?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+}
+
+model AIUsage {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+
+  promptTokens     Int @default(0)
+  completionTokens Int @default(0)
+  totalTokens      Int @default(0)
+
+  model String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PromptTemplate {
+  id String @id @default(cuid())
+
+  name String @unique
+
+  systemPrompt String
+
+  template String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model KnowledgeSourceConfig {
+  id String @id @default(cuid())
+
+  name String @unique @default("default")
+
+  dbType ExternalDbType
+
+  host     String?
+  port     Int?
+  username String?
+  password String?
+  database String?
+  schema   String?
+
+  sqlitePath String?
+
+  tableName     String
+  idColumn      String  @default("id")
+  contentColumn String  @default("content")
+  titleColumn   String?
+  whereClause   String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

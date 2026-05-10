@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documents Admin</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h2 { margin-bottom: 6px; }
+    .muted { color: #666; font-size: 13px; margin-bottom: 14px; }
+    .actions { display: flex; gap: 8px; margin-bottom: 14px; }
+    button { padding: 8px 10px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #ddd; padding: 8px; vertical-align: top; text-align: left; font-size: 13px; }
+    .ok { color: #0a7f3f; font-weight: 600; }
+    .warn { color: #9a6b00; font-weight: 600; }
+    .err { color: #b00020; font-weight: 600; }
+    pre { background: #111; color: #ddd; padding: 12px; border-radius: 8px; overflow: auto; max-height: 320px; }
+  </style>
+</head>
+<body>
+  <h2>Documents Admin</h2>
+  <div class="muted">View indexed documents, processing step, and remove a learned document.</div>
+  <div class="actions">
+    <button id="refreshBtn">Refresh</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Status</th>
+        <th>Step</th>
+        <th>Chunks</th>
+        <th>File</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <h3>Detail</h3>
+  <pre id="detail">Select a document...</pre>
+
+  <script>
+    const rows = document.getElementById('rows');
+    const detail = document.getElementById('detail');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    function statusClass(status) {
+      if (status === 'COMPLETED') return 'ok';
+      if (status === 'FAILED') return 'err';
+      return 'warn';
+    }
+
+    async function loadDocs() {
+      rows.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
+      const resp = await fetch('/documents');
+      const docs = await resp.json();
+      if (!Array.isArray(docs) || docs.length === 0) {
+        rows.innerHTML = '<tr><td colspan="6">No documents yet.</td></tr>';
+        return;
+      }
+
+      rows.innerHTML = '';
+      docs.forEach((doc) => {
+        const job = doc.processingJobs?.[0];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${doc.title || '-'}</td>
+          <td class="${statusClass(doc.status)}">${doc.status}</td>
+          <td>${job?.currentStep || '-'}</td>
+          <td>${doc.totalChunks ?? 0}</td>
+          <td>${doc.originalName || '-'}</td>
+          <td>
+            <button data-view="${doc.id}">View</button>
+            <button data-delete="${doc.id}">Delete</button>
+          </td>
+        `;
+        rows.appendChild(tr);
+      });
+    }
+
+    rows.addEventListener('click', async (e) => {
+      const viewId = e.target.getAttribute('data-view');
+      const deleteId = e.target.getAttribute('data-delete');
+      if (viewId) {
+        const resp = await fetch('/documents/' + viewId);
+        const data = await resp.json();
+        detail.textContent = JSON.stringify(data, null, 2);
+      }
+      if (deleteId) {
+        const ok = confirm('Delete this document and its vectors?');
+        if (!ok) return;
+        await fetch('/documents/' + deleteId, { method: 'DELETE' });
+        await loadDocs();
+        detail.textContent = 'Deleted: ' + deleteId;
+      }
+    });
+
+    refreshBtn.addEventListener('click', loadDocs);
+    loadDocs().catch((err) => {
+      detail.textContent = 'Load failed: ' + String(err);
+    });
+  </script>
+</body>
+</html>

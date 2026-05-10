@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document Upload Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 16px; }
+    form { display: grid; gap: 12px; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; }
+    input, button { padding: 8px 10px; font-size: 14px; }
+    pre { background: #111; color: #ddd; padding: 12px; border-radius: 8px; overflow: auto; }
+    .muted { color: #555; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h2>Upload document test</h2>
+  <p class="muted">Route: POST /uploads/document (multipart/form-data)</p>
+  <form id="uploadForm">
+    <input type="file" name="file" id="file" required />
+    <button type="submit">Upload and Process</button>
+  </form>
+  <p class="muted">Note: scanned PDF needs OCR; otherwise extracted text may be empty.</p>
+  <pre id="result">Waiting for upload...</pre>
+
+  <script>
+    const form = document.getElementById('uploadForm');
+    const result = document.getElementById('result');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      result.textContent = 'Uploading...';
+
+      const fileInput = document.getElementById('file');
+      if (!fileInput.files || fileInput.files.length === 0) {
+        result.textContent = 'Please choose a file.';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+
+      try {
+        const response = await fetch('/uploads/document', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await response.json();
+        result.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        result.textContent = 'Request failed: ' + String(error);
+      }
+    });
+  </script>
+</body>
+</html>

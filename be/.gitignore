@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+build/
+
+# Env & secrets (never commit)
+.env
+.env.*
+!.env.example
+!.env-example
+!.env.sample
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local document uploads (API writes under uploads/documents)
+uploads/
+
+# Test & coverage
+coverage/
+
+# Prisma client output
+src/generated
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

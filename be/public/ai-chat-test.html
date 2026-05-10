@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Chat API Test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        margin: 24px;
+        max-width: 960px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      .hint {
+        margin-top: 0;
+        color: #888;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .full {
+        grid-column: 1 / -1;
+      }
+      label {
+        font-size: 14px;
+        display: block;
+        margin-bottom: 6px;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      pre {
+        padding: 12px;
+        border: 1px solid #777;
+        border-radius: 8px;
+        overflow: auto;
+        min-height: 220px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AI Chat Test UI</h1>
+    <p class="hint">Test <code>/ai-chat/search</code> and <code>/ai-chat/ask</code> quickly.</p>
+
+    <div class="grid">
+      <div>
+        <label for="endpoint">Endpoint</label>
+        <select id="endpoint">
+          <option value="search">POST /ai-chat/search</option>
+          <option value="ask">POST /ai-chat/ask</option>
+        </select>
+      </div>
+      <div>
+        <label for="baseUrl">Base URL</label>
+        <input id="baseUrl" value="http://localhost:3000" />
+      </div>
+
+      <div class="full">
+        <label for="question">Question</label>
+        <textarea id="question" rows="3">Python có ưu điểm gì?</textarea>
+      </div>
+
+      <div>
+        <label for="topK">Top K</label>
+        <input id="topK" type="number" min="1" value="3" />
+      </div>
+      <div>
+        <label for="scoreThreshold">Score Threshold (optional)</label>
+        <input id="scoreThreshold" placeholder="e.g. 0.7" />
+      </div>
+
+      <div>
+        <label for="documentId">Document ID (optional)</label>
+        <input id="documentId" placeholder="cmow..." />
+      </div>
+      <div>
+        <label for="conversationId">Conversation ID (ask only)</label>
+        <input id="conversationId" placeholder="cmow..." />
+      </div>
+
+      <div class="full">
+        <button id="sendBtn" type="button">Send Request</button>
+      </div>
+    </div>
+
+    <h3>Response</h3>
+    <pre id="output">{}</pre>
+
+    <script>
+      const byId = (id) => document.getElementById(id);
+
+      byId("sendBtn").addEventListener("click", async () => {
+        const endpoint = byId("endpoint").value;
+        const baseUrl = byId("baseUrl").value.trim().replace(/\/+$/, "");
+        const question = byId("question").value.trim();
+        const topK = Number(byId("topK").value);
+        const scoreThresholdRaw = byId("scoreThreshold").value.trim();
+        const documentId = byId("documentId").value.trim();
+        const conversationId = byId("conversationId").value.trim();
+        const output = byId("output");
+
+        const payload = {
+          question,
+          topK: Number.isFinite(topK) && topK > 0 ? topK : 3,
+        };
+
+        if (scoreThresholdRaw.length > 0) {
+          const parsed = Number(scoreThresholdRaw);
+          if (!Number.isNaN(parsed)) payload.scoreThreshold = parsed;
+        }
+        if (documentId.length > 0) payload.documentId = documentId;
+        if (endpoint === "ask" && conversationId.length > 0) {
+          payload.conversationId = conversationId;
+        }
+
+        output.textContent = "Loading...";
+        try {
+          const res = await fetch(`${baseUrl}/ai-chat/${endpoint}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const text = await res.text();
+          let parsed = text;
+          try {
+            parsed = JSON.parse(text);
+          } catch {}
+
+          output.textContent = JSON.stringify(
+            { status: res.status, ok: res.ok, data: parsed },
+            null,
+            2
+          );
+        } catch (error) {
+          output.textContent = JSON.stringify(
+            {
+              status: "network_error",
+              message: error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2
+          );
+        }
+      });
+    </script>
+  </body>
+</html>
