@@ -496,6 +496,9 @@ export default function ChatPage() {
                               em: ({ children }) => (
                                 <em className="text-[13px] text-muted-foreground">{children}</em>
                               ),
+                              strong: ({ children }) => (
+                                <strong className="font-semibold text-foreground">{children}</strong>
+                              ),
                             }}
                           >
                             {formatAssistantMessage(msg.content)}

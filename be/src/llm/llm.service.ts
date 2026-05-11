@@ -24,6 +24,7 @@ export class LlmService {
     const prompt = [
       'You are a helpful assistant. Answer using the provided context.',
       'If context is insufficient, say so clearly.',
+      'Write in Markdown: use ## for section titles, short paragraphs, bullet lists when listing facts, and **bold** for names, numbers, and key terms.',
       '',
       `Question: ${question}`,
       '',
@@ -127,8 +128,8 @@ export class LlmService {
 
     const prompt = [
       'You are a helpful assistant.',
-      'Answer the question directly and concisely based on general knowledge.',
-      'If uncertain, state uncertainty briefly.',
+      'Answer the question directly based on general knowledge. If uncertain, state uncertainty briefly.',
+      'Write in Markdown: use ## section titles, bullet lists when helpful, and **bold** for important names or figures.',
       '',
       `Question: ${question}`,
     ].join('\n');

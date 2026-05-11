@@ -79,7 +79,8 @@ export class DocumentsService {
     }
 
     const targetUrl = this.parseHttpUrl(dto.url);
-    const html = await this.fetchWebPage(targetUrl.href);
+    const { html, finalUrl } = await this.fetchWebPage(targetUrl.href);
+    const resolvedUrl = new URL(finalUrl);
     const extracted = extractTextFromHtml(html);
     if (!extracted.text.trim()) {
       throw new BadRequestException(
@@ -91,14 +92,14 @@ export class DocumentsService {
     const title =
       dto.title?.trim() ||
       extracted.title ||
-      targetUrl.hostname ||
-      targetUrl.href;
+      resolvedUrl.hostname ||
+      resolvedUrl.href;
 
     const document = await this.prisma.document.create({
       data: {
         title: title.slice(0, 500),
-        originalName: targetUrl.pathname || '/',
-        filePath: targetUrl.href,
+        originalName: resolvedUrl.pathname || '/',
+        filePath: resolvedUrl.href,
         mimeType: WEB_MIME,
         fileSize: Buffer.byteLength(extracted.text, 'utf8'),
         uploadedById,
@@ -257,7 +258,7 @@ export class DocumentsService {
 
     for (const pageUrl of orderedUrls) {
       try {
-        const html = await this.fetchWebPage(pageUrl);
+        const { html, finalUrl } = await this.fetchWebPage(pageUrl);
         const extracted = extractTextFromHtml(html);
         const cleaned = this.documentTextExtractorService.cleanExtractedText(
           extracted.text,
@@ -265,7 +266,7 @@ export class DocumentsService {
         );
         if (cleaned.trim()) {
           pages.push({
-            url: pageUrl,
+            url: normalizeVisitUrl(finalUrl),
             pageTitle: extracted.title,
             cleanedText: cleaned,
           });
@@ -500,7 +501,8 @@ export class DocumentsService {
 
   private async previewSingleWebPage(targetHref: string) {
     const targetUrl = new URL(targetHref);
-    const html = await this.fetchWebPage(targetUrl.href);
+    const { html, finalUrl } = await this.fetchWebPage(targetUrl.href);
+    const resolvedUrl = new URL(finalUrl);
     const extracted = extractTextFromHtml(html);
     const cleaned = this.documentTextExtractorService.cleanExtractedText(
       extracted.text,
@@ -517,11 +519,11 @@ export class DocumentsService {
     const safeMax = Number.isFinite(maxChars) && maxChars > 500 ? maxChars : 16_000;
     const truncated = cleaned.length > safeMax;
     const titleGuess =
-      extracted.title?.trim() || targetUrl.hostname || targetUrl.href;
+      extracted.title?.trim() || resolvedUrl.hostname || resolvedUrl.href;
 
     return {
       mode: 'single' as const,
-      url: targetUrl.href,
+      url: resolvedUrl.href,
       suggestedTitle: titleGuess.slice(0, 500),
       rawCharCount: extracted.text.length,
       cleanedCharCount: cleaned.length,
@@ -913,8 +915,11 @@ export class DocumentsService {
       attempts += 1;
 
       let html: string;
+      let pageUrlForLinks: string;
       try {
-        html = await this.fetchWebPage(key);
+        const fetched = await this.fetchWebPage(key);
+        html = fetched.html;
+        pageUrlForLinks = normalizeVisitUrl(fetched.finalUrl);
       } catch {
         continue;
       }
@@ -931,7 +936,7 @@ export class DocumentsService {
       const trimmed = cleaned.trim();
       const charCount = cleaned.length;
       discovered.push({
-        url: key,
+        url: pageUrlForLinks,
         pageTitle: extracted.title,
         hasText: trimmed.length > 0,
         charCount,
@@ -939,7 +944,7 @@ export class DocumentsService {
       });
 
       if (attempts < maxFetches) {
-        for (const link of collectSameOriginLinks(html, key, hostname)) {
+        for (const link of collectSameOriginLinks(html, pageUrlForLinks, hostname)) {
           enqueue(link);
         }
       }
@@ -1010,8 +1015,11 @@ export class DocumentsService {
       attempts += 1;
 
       let html: string;
+      let pageUrlForLinks: string;
       try {
-        html = await this.fetchWebPage(key);
+        const fetched = await this.fetchWebPage(key);
+        html = fetched.html;
+        pageUrlForLinks = normalizeVisitUrl(fetched.finalUrl);
       } catch {
         continue;
       }
@@ -1028,14 +1036,14 @@ export class DocumentsService {
 
       if (cleaned.trim()) {
         pages.push({
-          url: key,
+          url: pageUrlForLinks,
           pageTitle: extracted.title,
           cleanedText: cleaned,
         });
       }
 
       if (attempts < maxPages) {
-        for (const link of collectSameOriginLinks(html, key, hostname)) {
+        for (const link of collectSameOriginLinks(html, pageUrlForLinks, hostname)) {
           enqueue(link);
         }
       }
@@ -1063,7 +1071,51 @@ export class DocumentsService {
     return url;
   }
 
-  private async fetchWebPage(url: string): Promise<string> {
+  /**
+   * After HTTP 404, try same-origin variants: trailing slash toggle, then site root
+   * (unless WEB_INGEST_404_TRY_SITE_ROOT=false). Other status codes are not retried.
+   */
+  private buildWebFetch404FallbackUrls(seed: string): string[] {
+    const norm = normalizeVisitUrl(seed);
+    const ordered: string[] = [norm];
+    const seen = new Set<string>([norm]);
+    const tryAdd = (href: string) => {
+      try {
+        const n = normalizeVisitUrl(href);
+        if (!seen.has(n)) {
+          seen.add(n);
+          ordered.push(n);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    try {
+      const u = new URL(norm);
+      const path = u.pathname || '/';
+      if (path !== '/' && path !== '') {
+        if (path.endsWith('/')) {
+          const stripped = path.replace(/\/+$/, '') || '/';
+          tryAdd(new URL(stripped, u.origin).href);
+        } else {
+          tryAdd(new URL(`${path}/`, u.origin).href);
+        }
+        const tryRoot =
+          process.env.WEB_INGEST_404_TRY_SITE_ROOT !== 'false';
+        if (tryRoot) {
+          const root = normalizeVisitUrl(new URL('/', u.origin).href);
+          if (root !== norm) {
+            tryAdd(root);
+          }
+        }
+      }
+    } catch {
+      /* ignore invalid seed */
+    }
+    return ordered;
+  }
+
+  private async fetchWebPageOnce(url: string): Promise<string> {
     const controller = new AbortController();
     const timeoutMs = Number(process.env.WEB_INGEST_TIMEOUT_MS ?? 30_000);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -1104,6 +1156,31 @@ export class DocumentsService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async fetchWebPage(
+    url: string,
+  ): Promise<{ html: string; finalUrl: string }> {
+    const attempts = this.buildWebFetch404FallbackUrls(url);
+    let last404: BadRequestException | undefined;
+    for (const attempt of attempts) {
+      try {
+        const html = await this.fetchWebPageOnce(attempt);
+        return { html, finalUrl: normalizeVisitUrl(attempt) };
+      } catch (e) {
+        if (e instanceof BadRequestException) {
+          if (e.message.includes('HTTP 404')) {
+            last404 = e;
+            continue;
+          }
+        }
+        throw e;
+      }
+    }
+    throw (
+      last404 ??
+      new BadRequestException('Failed to fetch URL: HTTP 404')
+    );
   }
 
   private async resolveUploadedById(uploadedById?: string): Promise<string> {

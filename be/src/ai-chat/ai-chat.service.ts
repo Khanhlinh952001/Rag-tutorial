@@ -57,18 +57,16 @@ export class AiChatService {
       relevantRetrieved.length > 0
         ? await this.llmService.answer(
             urlIngest.urlOnly
-              ? `사용자가 웹 페이지 URL만 입력했습니다. 아래 컨텍스트만 근거로 이 페이지의 핵심을 요약·설명하세요. (원문: ${question})`
+              ? `사용자가 웹 페이지 URL만 입력했습니다. 아래 컨텍스트만 근거로 이 페이지를 요약·설명하세요. Markdown으로 작성하세요(## 소제목, 짧은 단락, 필요 시 불릿, 회사명·인명·수치는 **굵게**). (원문: ${question})`
               : question,
             relevantRetrieved.map((r) => r.content),
           )
         : await this.llmService.answerGeneral(question);
 
     if (urlIngest.ingested) {
-      const notice = `**웹 페이지를 학습 DB에 추가했습니다.** \`${urlIngest.url}\`\n\n`;
-      answer = notice + answer;
+      answer = this.buildUrlIngestSuccessBanner(urlIngest.url) + answer;
     } else if (urlIngest.error) {
-      const warn = `> 페이지 수집 실패: ${urlIngest.error}\n\n---\n\n`;
-      answer = warn + answer;
+      answer = this.buildUrlIngestErrorBanner(urlIngest.error) + answer;
     }
 
     const conversation =
@@ -353,6 +351,52 @@ export class AiChatService {
       const overlap = matched / queryTokens.length;
       return matched >= minMatchedTokens && overlap >= minOverlap;
     });
+  }
+
+  /** 학습 반영 알림: 인코딩된 URL을 백틱 대신 링크+읽기 쉬운 라벨로 표시 */
+  private buildUrlIngestSuccessBanner(canonicalUrl: string): string {
+    const label = this.displayUrlLabel(canonicalUrl);
+    const safeLabel = label
+      .replace(/\\/g, '\\\\')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
+    return [
+      '#### 학습 DB 반영',
+      '',
+      '이 페이지를 검색 컬렉션에 추가했습니다.',
+      '',
+      `- **출처:** [${safeLabel}](${canonicalUrl})`,
+      '',
+      '---',
+      '',
+    ].join('\n');
+  }
+
+  private buildUrlIngestErrorBanner(error: string): string {
+    const escaped = error.replace(/\r\n/g, '\n').replace(/\n/g, '\n> ');
+    return ['> **페이지 수집 실패**', '', `> ${escaped}`, '', '---', '', ''].join(
+      '\n',
+    );
+  }
+
+  private displayUrlLabel(raw: string): string {
+    try {
+      const u = new URL(raw);
+      let path = u.pathname;
+      try {
+        path = decodeURIComponent(path);
+      } catch {
+        /* 유지 */
+      }
+      const host = u.hostname.replace(/^www\./iu, '');
+      let label = path && path !== '/' ? `${host}${path}` : host;
+      if (label.length > 88) {
+        label = `${label.slice(0, 85)}…`;
+      }
+      return label || raw;
+    } catch {
+      return raw.length > 88 ? `${raw.slice(0, 85)}…` : raw;
+    }
   }
 
   private tokenize(text: string): string[] {
