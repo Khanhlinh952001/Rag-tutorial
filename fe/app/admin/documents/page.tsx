@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
   useState,
 } from "react";
-import { Database, Globe, Plus, RefreshCw } from "lucide-react";
+import { Database, Globe, ImagePlus, Plus, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ import { DocumentDeleteAlert } from "./document-delete-alert";
 import { KnowledgeDialog } from "./knowledge-dialog";
 import { KnowledgeDeleteAlert } from "./knowledge-delete-alert";
 import { KnowledgeSourceCard } from "./knowledge-source-card";
+import { OcrPreviewDialog } from "./ocr-preview-dialog";
 import { UploadDocumentDialog } from "./upload-document-dialog";
 import { WebScanDialog } from "./web-scan-dialog";
 import {
@@ -36,6 +37,7 @@ import type {
   DeleteTarget,
   DiscoverWebResponse,
   DocumentItem,
+  DocumentDetail,
   FilterKey,
   KnowledgeConfigForm,
   KnowledgeDbType,
@@ -50,7 +52,7 @@ export default function AdminDocumentsPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterKey>("ALL");
@@ -94,6 +96,12 @@ export default function AdminDocumentsPage() {
   const [knowledgeSyncSummary, setKnowledgeSyncSummary] =
     useState<KnowledgeSyncSummary | null>(null);
   const [isKnowledgeDialogOpen, setIsKnowledgeDialogOpen] = useState(false);
+  const [isOcrPreviewDialogOpen, setIsOcrPreviewDialogOpen] = useState(false);
+  const [ocrPreviewLoading, setOcrPreviewLoading] = useState(false);
+  const [ocrPreviewDocId, setOcrPreviewDocId] = useState<string | null>(null);
+  const [ocrPreviewTitle, setOcrPreviewTitle] = useState("");
+  const [ocrPreviewContent, setOcrPreviewContent] = useState("");
+  const [ocrPreviewError, setOcrPreviewError] = useState<string | null>(null);
   const isHydrated = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -284,15 +292,15 @@ export default function AdminDocumentsPage() {
   }, [documents, loadDocuments]);
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    setSelectedFile(file);
+    const list = event.target.files;
+    setSelectedFiles(list?.length ? Array.from(list) : []);
     setInfo(null);
     setError(null);
   }
 
-  function pickFirstFile(list: FileList | null): File | null {
-    if (!list?.length) return null;
-    return list[0];
+  function pickFilesFromList(list: FileList | null): File[] {
+    if (!list?.length) return [];
+    return Array.from(list);
   }
 
   function handleDragEnter(e: DragEvent<HTMLDivElement>) {
@@ -318,16 +326,16 @@ export default function AdminDocumentsPage() {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    const file = pickFirstFile(e.dataTransfer.files);
-    if (file) {
-      setSelectedFile(file);
+    const files = pickFilesFromList(e.dataTransfer.files);
+    if (files.length > 0) {
+      setSelectedFiles(files);
       setInfo(null);
       setError(null);
     }
   }
 
   function clearSelectedFile() {
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setInfo(null);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -341,7 +349,7 @@ export default function AdminDocumentsPage() {
     if (uploading || webIngesting) return;
     setIsUploadDialogOpen(false);
     setIsDragging(false);
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setWebUrl("");
     setWebTitle("");
     setError(null);
@@ -609,8 +617,13 @@ export default function AdminDocumentsPage() {
 
   async function onUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedFile) {
+    const maxBatch = 30;
+    if (selectedFiles.length === 0) {
       setError("업로드할 파일을 선택하세요.");
+      return;
+    }
+    if (selectedFiles.length > maxBatch) {
+      setError(`한 번에 최대 ${maxBatch}개까지 업로드할 수 있습니다.`);
       return;
     }
     const token = localStorage.getItem("admin_access_token");
@@ -625,9 +638,11 @@ export default function AdminDocumentsPage() {
 
     try {
       const formData = new FormData();
-      formData.append("file", selectedFile);
+      for (const f of selectedFiles) {
+        formData.append("files", f);
+      }
 
-      const response = await fetch(`${API_BASE}/uploads/document`, {
+      const response = await fetch(`${API_BASE}/uploads/documents`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -644,10 +659,13 @@ export default function AdminDocumentsPage() {
         return;
       }
 
+      const count = selectedFiles.length;
       setInfo(
-        `업로드 완료: ${selectedFile.name}. AI 학습용으로 처리 중입니다.`,
+        count > 1
+          ? `업로드 완료: ${count}개 파일. AI 학습용으로 처리 중입니다.`
+          : `업로드 완료: ${selectedFiles[0]?.name ?? ""}. AI 학습용으로 처리 중입니다.`,
       );
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setIsUploadDialogOpen(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadDocuments();
@@ -657,6 +675,58 @@ export default function AdminDocumentsPage() {
       );
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function openOcrPreview(doc: DocumentItem) {
+    const token = localStorage.getItem("admin_access_token");
+    if (!token) {
+      setError("로그인 세션이 없습니다. 다시 로그인해 주세요.");
+      return;
+    }
+
+    setIsOcrPreviewDialogOpen(true);
+    setOcrPreviewLoading(true);
+    setOcrPreviewDocId(doc.id);
+    setOcrPreviewTitle(doc.title);
+    setOcrPreviewContent("");
+    setOcrPreviewError(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/documents/${doc.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await response.json().catch(() => null)) as DocumentDetail | null;
+      if (!response.ok || !data) {
+        const message =
+          data &&
+          typeof data === "object" &&
+          "message" in data &&
+          typeof (data as { message?: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : "OCR 내용을 불러오지 못했습니다.";
+        setOcrPreviewError(message);
+        return;
+      }
+
+      const chunks = Array.isArray(data.chunks) ? data.chunks : [];
+      const content = chunks
+        .sort((a, b) => a.chunkIndex - b.chunkIndex)
+        .map((chunk) => chunk.content?.trim() ?? "")
+        .filter((chunk) => chunk.length > 0)
+        .join("\n\n");
+
+      setOcrPreviewTitle(data.title ?? doc.title);
+      setOcrPreviewContent(content);
+      if (!content) {
+        setOcrPreviewError("추출된 텍스트가 비어 있습니다.");
+      }
+    } catch (e) {
+      setOcrPreviewError(
+        e instanceof Error ? e.message : "네트워크 오류가 발생했습니다.",
+      );
+    } finally {
+      setOcrPreviewLoading(false);
     }
   }
 
@@ -1156,7 +1226,7 @@ export default function AdminDocumentsPage() {
               onClick={() => {
                 setError(null);
                 setInfo(null);
-                setSelectedFile(null);
+                setSelectedFiles([]);
                 setWebUrl("");
                 setWebTitle("");
                 setIsUploadDialogOpen(true);
@@ -1164,6 +1234,25 @@ export default function AdminDocumentsPage() {
             >
               <Plus className="h-3.5 w-3.5" />
               추가
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setError(null);
+                setInfo("OCR 학습용 이미지를 선택하세요. (Ctrl/Cmd로 여러 장 선택 가능)");
+                setSelectedFiles([]);
+                setWebUrl("");
+                setWebTitle("");
+                setIsUploadDialogOpen(true);
+                window.setTimeout(() => {
+                  fileInputRef.current?.click();
+                }, 0);
+              }}
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+              이미지 OCR 추가
             </Button>
             {SHOW_WEB_DEV_PANEL ? (
               <Button
@@ -1248,6 +1337,14 @@ export default function AdminDocumentsPage() {
                 key={doc.id}
                 doc={doc}
                 isHydrated={isHydrated}
+                ocrPreviewLoading={ocrPreviewLoading && ocrPreviewDocId === doc.id}
+                onPreviewOcr={
+                  doc.mimeType.startsWith("image/")
+                    ? () => {
+                        void openOcrPreview(doc);
+                      }
+                    : undefined
+                }
                 onDelete={() => setDeleteTarget({ id: doc.id, title: doc.title })}
               />
             ))}
@@ -1265,7 +1362,7 @@ export default function AdminDocumentsPage() {
           uploading={uploading}
           webIngesting={webIngesting}
           isDragging={isDragging}
-          selectedFile={selectedFile}
+          selectedFiles={selectedFiles}
           webUrl={webUrl}
           webTitle={webTitle}
           error={error}
@@ -1311,6 +1408,23 @@ export default function AdminDocumentsPage() {
           onTogglePage={togglePageSelected}
         />
       ) : null}
+
+      <OcrPreviewDialog
+        open={isOcrPreviewDialogOpen}
+        loading={ocrPreviewLoading}
+        title={ocrPreviewTitle}
+        content={ocrPreviewContent}
+        error={ocrPreviewError}
+        onOpenChange={(open) => {
+          setIsOcrPreviewDialogOpen(open);
+          if (!open && !ocrPreviewLoading) {
+            setOcrPreviewDocId(null);
+            setOcrPreviewTitle("");
+            setOcrPreviewContent("");
+            setOcrPreviewError(null);
+          }
+        }}
+      />
 
       <DocumentDeleteAlert
         deleteTarget={deleteTarget}

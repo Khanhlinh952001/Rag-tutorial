@@ -20,7 +20,7 @@ export type UploadDocumentDialogProps = {
   uploading: boolean;
   webIngesting: boolean;
   isDragging: boolean;
-  selectedFile: File | null;
+  selectedFiles: File[];
   webUrl: string;
   webTitle: string;
   error: string | null;
@@ -46,7 +46,7 @@ export function UploadDocumentDialog({
   uploading,
   webIngesting,
   isDragging,
-  selectedFile,
+  selectedFiles,
   webUrl,
   webTitle,
   error,
@@ -125,6 +125,7 @@ export function UploadDocumentDialog({
               onChange={onFileChange}
               disabled={busy}
               accept={UPLOAD_ACCEPT}
+              multiple
             />
 
             <div
@@ -183,12 +184,13 @@ export function UploadDocumentDialog({
                     : "여기에 드롭하거나 클릭하여 선택"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  PDF, Word, PPT, TXT, Markdown, CSV, JSON, HWP
+                  PDF, Word, PPT, TXT, Markdown, CSV, JSON, HWP, JPG, PNG, WEBP — 여러
+                  파일 선택 가능
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center justify-center gap-1.5">
-                {["PDF", "DOCX", "PPT", "PPTX", "TXT", "MD", "CSV", "JSON", "HWP"].map(
+                {["PDF", "DOCX", "PPT", "PPTX", "TXT", "MD", "CSV", "JSON", "HWP", "JPG", "PNG", "WEBP"].map(
                   (ext) => (
                     <span
                       key={ext}
@@ -201,25 +203,36 @@ export function UploadDocumentDialog({
               </div>
             </div>
 
-            {selectedFile ? (
-              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-dashed border-border/60 bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border bg-background">
-                    <FileText className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="min-w-0 text-left">
-                    <p
-                      className="truncate text-sm font-medium"
-                      title={selectedFile.name}
+            {selectedFiles.length > 0 ? (
+              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-dashed border-border/60 bg-muted/30 p-4">
+                <div className="flex max-h-40 flex-col gap-2 overflow-y-auto pr-1">
+                  {selectedFiles.map((f) => (
+                    <div
+                      key={`${f.name}-${f.size}-${f.lastModified}`}
+                      className="flex min-w-0 items-center gap-3 rounded-lg border border-border/50 bg-background/80 px-3 py-2"
                     >
-                      {selectedFile.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatFileSize(selectedFile.size)} · 준비됨
-                    </p>
-                  </div>
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background">
+                        <FileText className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="truncate text-xs font-medium" title={f.name}>
+                          {f.name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {formatFileSize(f.size)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex shrink-0 items-center justify-end gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    총 {selectedFiles.length}개 ·{" "}
+                    {formatFileSize(
+                      selectedFiles.reduce((sum, f) => sum + f.size, 0),
+                    )}
+                  </p>
+                  <div className="flex shrink-0 items-center justify-end gap-2">
                   <Button
                     type="button"
                     variant="ghost"
@@ -242,10 +255,13 @@ export function UploadDocumentDialog({
                         <Loader className="h-3.5 w-3.5 animate-spin" />
                         전송 중
                       </>
+                    ) : selectedFiles.length > 1 ? (
+                      `AI에 보내기 (${selectedFiles.length})`
                     ) : (
                       "AI에 보내기"
                     )}
                   </Button>
+                  </div>
                 </div>
               </div>
             ) : null}

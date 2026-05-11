@@ -22,6 +22,16 @@ export type DocumentItem = {
   processingJobs?: ProcessingJob[];
 };
 
+export type DocumentChunkItem = {
+  id: string;
+  chunkIndex: number;
+  content: string;
+};
+
+export type DocumentDetail = DocumentItem & {
+  chunks?: DocumentChunkItem[];
+};
+
 export type DeleteTarget = {
   id: string;
   title: string;

@@ -1,0 +1,14 @@
+# Root workspace — pnpm hoists deps here; never commit
+node_modules/
+
+# Local pnpm store when store-dir points into the repo (content-addressed hex files)
+.pnpm-store/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+pnpm-debug.log*

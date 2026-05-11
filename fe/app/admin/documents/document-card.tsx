@@ -13,6 +13,7 @@ import {
   Globe,
   Loader,
   Sparkles,
+  TextSearch,
   Trash2,
 } from "lucide-react";
 
@@ -64,15 +65,20 @@ function FileTypeIcon({
 export function DocumentCard({
   doc,
   isHydrated,
+  ocrPreviewLoading,
+  onPreviewOcr,
   onDelete,
 }: {
   doc: DocumentItem;
   isHydrated: boolean;
+  ocrPreviewLoading?: boolean;
+  onPreviewOcr?: () => void;
   onDelete: () => void;
 }) {
   const job = doc.processingJobs?.[0];
   const chunks = doc.totalChunks ?? doc._count?.chunks ?? 0;
   const learned = doc.status === "COMPLETED";
+  const canPreviewOcr = learned && doc.mimeType.startsWith("image/") && Boolean(onPreviewOcr);
 
   const cardTone =
     doc.status === "COMPLETED"
@@ -181,6 +187,28 @@ export function DocumentCard({
           </div>
         )}
       </div>
+      {canPreviewOcr ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-1 h-7 text-xs"
+          onClick={onPreviewOcr}
+          disabled={ocrPreviewLoading}
+        >
+          {ocrPreviewLoading ? (
+            <>
+              <Loader className="h-3 w-3 animate-spin" />
+              불러오는 중
+            </>
+          ) : (
+            <>
+              <TextSearch className="h-3 w-3" />
+              OCR 확인
+            </>
+          )}
+        </Button>
+      ) : null}
     </div>
   );
 }

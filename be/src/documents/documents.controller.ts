@@ -7,7 +7,10 @@ import {
   Param,
   Patch,
   Post,
+  StreamableFile,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { SyncDbDto } from './dto/sync-db.dto';
@@ -54,6 +57,17 @@ export class DocumentsController {
   @Get()
   findAll() {
     return this.documentsService.findAll();
+  }
+
+  /** Stream uploaded image bytes (JWT). Chat UI uses this to show retrieved images. */
+  @Get(':id/asset')
+  @UseGuards(JwtAuthGuard)
+  async getImageAsset(@Param('id') id: string): Promise<StreamableFile> {
+    const { stream, mimeType } = await this.documentsService.createImageAssetReadStream(id);
+    return new StreamableFile(stream, {
+      type: mimeType,
+      disposition: `inline; filename="document-${id}"`,
+    });
   }
 
   @Get(':id')

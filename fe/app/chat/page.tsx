@@ -1,7 +1,7 @@
 
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,14 +26,22 @@ type AuthResponse = {
   message?: string;
 };
 
+type RetrievedSnippet = {
+  score?: number;
+  content?: string;
+  imageAssetUrl?: string;
+  metadata?: {
+    documentId?: string;
+    mimeType?: string;
+    title?: string;
+    source?: string;
+  };
+};
+
 type AskResponse = {
   conversationId: string;
   answer: string;
-  retrieved?: Array<{
-    score?: number;
-    content?: string;
-    documentId?: string;
-  }>;
+  retrieved?: RetrievedSnippet[];
   urlIngest?: {
     ingested: boolean;
     url: string;
@@ -48,6 +56,7 @@ type ConversationDetailResponse = {
     id: string;
     role: "USER" | "ASSISTANT";
     content: string;
+    metadata?: unknown;
   }>;
 };
 
@@ -55,7 +64,106 @@ type ChatMessage = {
   id: string;
   role: "USER" | "ASSISTANT";
   content: string;
+  retrieved?: RetrievedSnippet[];
 };
+
+function RetrievedImageGallery({
+  items,
+  apiBase,
+  authToken,
+}: {
+  items: RetrievedSnippet[];
+  apiBase: string;
+  authToken: string;
+}) {
+  const entries = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { documentId: string; path: string; title?: string }[] = [];
+    for (const it of items) {
+      const path = it.imageAssetUrl?.trim();
+      if (!path) continue;
+      const docId =
+        (typeof it.metadata?.documentId === "string" && it.metadata.documentId) ||
+        /^\/documents\/([^/]+)\/asset$/u.exec(path)?.[1];
+      if (!docId || seen.has(docId)) continue;
+      const mime = String(it.metadata?.mimeType ?? "");
+      if (!mime.startsWith("image/")) continue;
+      seen.add(docId);
+      out.push({
+        documentId: docId,
+        path: path.startsWith("/") ? path : `/${path}`,
+        title: typeof it.metadata?.title === "string" ? it.metadata.title : undefined,
+      });
+    }
+    return out;
+  }, [items]);
+
+  const [urlsByDocId, setUrlsByDocId] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (entries.length === 0) {
+      setUrlsByDocId({});
+      return;
+    }
+
+    let cancelled = false;
+    const objectUrls: string[] = [];
+
+    async function run() {
+      const next: Record<string, string> = {};
+      for (const { documentId, path } of entries) {
+        try {
+          const res = await fetch(`${apiBase}${path}`, {
+            headers: { Authorization: `Bearer ${authToken}` },
+          });
+          if (!res.ok || cancelled) continue;
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          objectUrls.push(url);
+          next[documentId] = url;
+        } catch {
+          /* 건너뜀 */
+        }
+      }
+      if (!cancelled) {
+        setUrlsByDocId(next);
+      }
+    }
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      for (const u of objectUrls) {
+        URL.revokeObjectURL(u);
+      }
+    };
+  }, [entries, apiBase, authToken]);
+
+  const pairs = Object.entries(urlsByDocId);
+  if (pairs.length === 0) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
+      {pairs.map(([documentId, src]) => {
+        const meta = entries.find((e) => e.documentId === documentId);
+        const alt = meta?.title ?? "검색된 이미지";
+        return (
+          <a
+            key={documentId}
+            href={`${apiBase}/documents/${documentId}/asset`}
+            target="_blank"
+            rel="noreferrer"
+            className="block overflow-hidden rounded-lg border border-border/60 bg-background/50 shadow-sm"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={src} alt={alt} className="max-h-48 max-w-[min(100%,280px)] object-contain" loading="lazy" />
+          </a>
+        );
+      })}
+    </div>
+  );
+}
 
 function formatAssistantMessage(content: string): string {
   let normalized = content
@@ -178,11 +286,21 @@ export default function ChatPage() {
 
       setConversationId(data.id);
       setMessages(
-        data.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-        })),
+        data.messages.map((message) => {
+          let retrieved: RetrievedSnippet[] | undefined;
+          if (message.role === "ASSISTANT" && message.metadata != null && typeof message.metadata === "object") {
+            const md = message.metadata as { retrieved?: unknown };
+            if (Array.isArray(md.retrieved)) {
+              retrieved = md.retrieved as RetrievedSnippet[];
+            }
+          }
+          return {
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            retrieved,
+          };
+        }),
       );
       setChatError("");
     };
@@ -311,6 +429,7 @@ export default function ChatPage() {
         id: `a-${Date.now()}`,
         role: "ASSISTANT",
         content: data.answer,
+        retrieved: data.retrieved,
       };
       setMessages((prev) => [...prev, assistantMessage]);
       setConversationId(data.conversationId);
@@ -447,9 +566,10 @@ export default function ChatPage() {
                         )}
                       >
                         {msg.role === "ASSISTANT" ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
+                          <>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
                               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                               ul: ({ children }) => <ul className="mb-2 list-disc space-y-1.5 pl-5">{children}</ul>,
                               ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-5">{children}</ol>,
@@ -503,6 +623,14 @@ export default function ChatPage() {
                           >
                             {formatAssistantMessage(msg.content)}
                           </ReactMarkdown>
+                            {token && msg.retrieved && msg.retrieved.length > 0 ? (
+                              <RetrievedImageGallery
+                                items={msg.retrieved}
+                                apiBase={API_BASE}
+                                authToken={token}
+                              />
+                            ) : null}
+                          </>
                         ) : (
                           msg.content
                         )}

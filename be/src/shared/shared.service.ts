@@ -34,6 +34,17 @@ export class SharedService {
         return 'application/vnd.ms-powerpoint';
       case '.txt':
         return 'text/plain';
+      case '.json':
+        return 'application/json';
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.png':
+        return 'image/png';
+      case '.webp':
+        return 'image/webp';
+      case '.gif':
+        return 'image/gif';
       case '.hwp':
         return 'application/x-hwp';
       case '.hwpx':

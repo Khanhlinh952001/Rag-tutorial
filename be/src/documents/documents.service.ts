@@ -1,14 +1,19 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
-import { basename } from 'node:path';
+import { basename, join, resolve as resolvePath } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createReadStream, type ReadStream } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { unlink } from 'node:fs/promises';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { DocumentTextExtractorService } from './extractors/document-text-extractor.service';
+import { ImageIngestService } from './image-ingest.service';
 import { VectorService } from '../vector/vector.service';
 import { PrismaService } from '../prisma.service';
 import { DocumentStatus } from '../generated/prisma/enums';
@@ -28,6 +33,8 @@ export class DocumentsService {
   constructor(
     @Inject(DocumentTextExtractorService)
     private readonly documentTextExtractorService: DocumentTextExtractorService,
+    @Inject(ImageIngestService)
+    private readonly imageIngestService: ImageIngestService,
     @Inject(VectorService)
     private readonly vectorService: VectorService,
     @Inject(PrismaService)
@@ -586,11 +593,51 @@ export class DocumentsService {
         where: { id: document.id },
         data: { status: DocumentStatus.PROCESSING },
       });
-      const extractedText =
-        await this.documentTextExtractorService.extractByMimeType(
+
+      const isRasterImage = document.mimeType.startsWith('image/');
+      let extractedText: string;
+      let imageIngestMeta: Record<string, unknown> | undefined;
+
+      if (isRasterImage) {
+        await this.prisma.processingJob.update({
+          where: { id: processingJob.id },
+          data: { currentStep: 'classifying-image' },
+        });
+        const img = await this.imageIngestService.extractForRag(
           document.filePath,
           document.mimeType,
+          {
+            beforeVision: async () => {
+              await this.prisma.processingJob.update({
+                where: { id: processingJob.id },
+                data: { currentStep: 'vision-caption' },
+              });
+            },
+            onPipelinePhase: async (phase) => {
+              await this.prisma.processingJob.update({
+                where: { id: processingJob.id },
+                data: { currentStep: phase },
+              });
+            },
+          },
         );
+        extractedText = img.text;
+        imageIngestMeta = {
+          ingestMethod: img.ingestMethod,
+          probeChars: img.probeChars,
+          ...(img.pipeline ? { imagePipeline: img.pipeline } : {}),
+        };
+        await this.prisma.processingJob.update({
+          where: { id: processingJob.id },
+          data: { currentStep: 'extracting' },
+        });
+      } else {
+        extractedText =
+          await this.documentTextExtractorService.extractByMimeType(
+            document.filePath,
+            document.mimeType,
+          );
+      }
 
       await this.prisma.processingJob.update({
         where: { id: processingJob.id },
@@ -625,6 +672,7 @@ export class DocumentsService {
             documentId: document.id,
             source: document.filePath,
             title: document.title,
+            ...(imageIngestMeta ?? {}),
           },
         })),
       });
@@ -641,6 +689,7 @@ export class DocumentsService {
               source: document.filePath,
               title: document.title,
               mimeType: document.mimeType,
+              ...(imageIngestMeta ?? {}),
             },
           })),
         });
@@ -721,6 +770,40 @@ export class DocumentsService {
         },
       },
     });
+  }
+
+  /**
+   * Authenticated read of an uploaded raster image (under uploads/documents).
+   * Used by chat UI to render retrieved image sources.
+   */
+  async createImageAssetReadStream(documentId: string): Promise<{
+    stream: ReadStream;
+    mimeType: string;
+  }> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: documentId },
+    });
+    if (!document?.mimeType?.startsWith('image/')) {
+      throw new NotFoundException('Image document not found');
+    }
+
+    const uploadsDir = resolvePath(join(process.cwd(), 'uploads', 'documents'));
+    let fileReal: string;
+    let dirReal: string;
+    try {
+      fileReal = resolvePath(await realpath(document.filePath));
+      dirReal = resolvePath(await realpath(uploadsDir));
+    } catch {
+      throw new NotFoundException('Image file is missing on disk');
+    }
+
+    const sep = process.platform === 'win32' ? '\\' : '/';
+    if (!fileReal.startsWith(dirReal + sep)) {
+      throw new ForbiddenException('Asset path is not allowed');
+    }
+
+    const stream = createReadStream(fileReal);
+    return { stream, mimeType: document.mimeType };
   }
 
   update(id: number, updateDocumentDto: UpdateDocumentDto) {

@@ -10,7 +10,7 @@ export const SHOW_WEB_DEV_PANEL =
   process.env.NEXT_PUBLIC_WEB_DEV_PANEL !== "false";
 
 export const UPLOAD_ACCEPT =
-  ".pdf,.txt,.md,.doc,.docx,.csv,.json,.hwp,.hwpx,.ppt,.pptx,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-hwp,application/haansofthwp,application/vnd.hancom.hwp,application/x-hwpx,application/vnd.hancom.hwpx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  ".pdf,.txt,.md,.doc,.docx,.csv,.json,.hwp,.hwpx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.gif,application/pdf,text/plain,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-hwp,application/haansofthwp,application/vnd.hancom.hwp,application/x-hwpx,application/vnd.hancom.hwpx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png,image/webp,image/gif";
 
 export const INITIAL_KNOWLEDGE_CONFIG: KnowledgeConfigForm = {
   sourceName: "",
@@ -40,6 +40,8 @@ export const FILTER_LABELS: Record<FilterKey, string> = {
 export const STEP_LABELS: Record<string, string> = {
   uploaded: "업로드 완료",
   extracting: "텍스트 추출 중",
+  "classifying-image": "이미지 유형 판별 중",
+  "vision-caption": "Vision 캡션·태그 생성 중",
   "extracting-web": "웹 페이지 불러오는 중",
   cleaning: "텍스트 정리 중",
   chunking: "청크 분할 중",

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
 
 import { createAsyncConcurrencyLimiter } from '../shared/concurrency-limiter';
 
@@ -118,6 +119,222 @@ export class LlmService {
 
   async answerGeneral(question: string): Promise<string> {
     return this.runWithLlmLimit(() => this.executeAnswerGeneral(question));
+  }
+
+  /**
+   * Vision caption + tags for RAG when OCR probe finds little text (scene/photo).
+   * Uses Chat Completions + image_url (OpenAI-compatible).
+   */
+  async describeImageForRag(imagePath: string, mimeType: string): Promise<string> {
+    return this.runWithLlmLimit(() => this.executeDescribeImageForRag(imagePath, mimeType));
+  }
+
+  /**
+   * Text-only fusion of OCR / Vision / layout channels for image RAG indexing.
+   * Deduplicates noise and produces one chunk-friendly document string.
+   */
+  async fuseImageRagChannels(input: {
+    kind: string;
+    weights: { ocr: number; vision: number; layout: number };
+    ocrText: string;
+    visionText: string;
+    layoutText: string;
+  }): Promise<string> {
+    return this.runWithLlmLimit(() => this.executeFuseImageRagChannels(input));
+  }
+
+  private async executeDescribeImageForRag(
+    imagePath: string,
+    mimeType: string,
+  ): Promise<string> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not set');
+    }
+
+    const buf = readFileSync(imagePath);
+    const b64 = buf.toString('base64');
+    const safeMime = mimeType.startsWith('image/') ? mimeType : 'image/png';
+    const dataUrl = `data:${safeMime};base64,${b64}`;
+
+    const baseUrl = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(
+      /\/+$/,
+      '',
+    );
+    const model = process.env.OPENAI_VISION_MODEL ?? 'gpt-4o-mini';
+    const timeoutMs = Number(process.env.IMAGE_VISION_TIMEOUT_MS ?? 90_000);
+
+    const instruction = [
+      'You catalog images for semantic search (RAG).',
+      'Describe the scene, objects, setting, and any visible text language.',
+      'Return ONLY valid JSON (no markdown code fences) in this exact shape:',
+      '{"caption":"one concise paragraph","tags":["keyword1","keyword2","up to 12 short tags"]}',
+    ].join(' ');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 600,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: instruction },
+                { type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Vision API HTTP ${response.status}: ${errBody.slice(0, 400)}`);
+      }
+
+      const json = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const raw = json.choices?.[0]?.message?.content?.trim() ?? '';
+      return this.formatVisionJsonForRag(raw);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private formatVisionJsonForRag(raw: string): string {
+    let s = raw.trim();
+    if (s.startsWith('```')) {
+      s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    }
+    let parsed: { caption?: string; tags?: unknown };
+    try {
+      parsed = JSON.parse(s) as { caption?: string; tags?: unknown };
+    } catch {
+      return ['[이미지 Vision 요약 — JSON 파싱 실패]', s.slice(0, 4000)].join('\n\n');
+    }
+
+    const caption = typeof parsed.caption === 'string' ? parsed.caption.trim() : '';
+    const tags = Array.isArray(parsed.tags)
+      ? parsed.tags
+          .filter((t): t is string => typeof t === 'string')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
+    const tagLine = tags.length ? tags.join(', ') : '';
+    const searchLine = [caption, tagLine].filter(Boolean).join(' · ');
+
+    return [
+      '[이미지 유형: scene/photo — Vision 요약]',
+      '',
+      `Caption: ${caption || '(none)'}`,
+      tagLine ? `Tags: ${tagLine}` : '',
+      '',
+      `[검색용 요약] ${searchLine || '(empty)'}`,
+    ]
+      .join('\n')
+      .trim();
+  }
+
+  private async executeFuseImageRagChannels(input: {
+    kind: string;
+    weights: { ocr: number; vision: number; layout: number };
+    ocrText: string;
+    visionText: string;
+    layoutText: string;
+  }): Promise<string> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not set');
+    }
+
+    const { kind, weights, ocrText, visionText, layoutText } = input;
+    const baseUrl = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(
+      /\/+$/,
+      '',
+    );
+    const model =
+      process.env.OPENAI_IMAGE_FUSE_MODEL ??
+      process.env.OPENAI_MODEL ??
+      process.env.OPENAI_VISION_MODEL ??
+      'gpt-4o-mini';
+
+    const maxO = Number(process.env.IMAGE_PIPELINE_FUSE_MAX_OCR ?? 8000);
+    const maxV = Number(process.env.IMAGE_PIPELINE_FUSE_MAX_VISION ?? 5000);
+    const maxL = Number(process.env.IMAGE_PIPELINE_FUSE_MAX_LAYOUT ?? 4000);
+    const mo = Number.isFinite(maxO) && maxO > 400 ? Math.floor(maxO) : 8000;
+    const mv = Number.isFinite(maxV) && maxV > 400 ? Math.floor(maxV) : 5000;
+    const ml = Number.isFinite(maxL) && maxL > 400 ? Math.floor(maxL) : 4000;
+
+    const bundle = [
+      `Image class: ${kind}`,
+      `Channel weights (trust): OCR=${weights.ocr.toFixed(3)}, Vision=${weights.vision.toFixed(3)}, Layout=${weights.layout.toFixed(3)}`,
+      '',
+      '--- OCR channel ---',
+      ocrText.slice(0, mo),
+      '',
+      '--- Vision channel ---',
+      visionText.slice(0, mv),
+      '',
+      '--- Layout channel ---',
+      layoutText.slice(0, ml),
+    ].join('\n');
+
+    const system = [
+      'You merge three text channels from the same raster image into ONE clean document for vector RAG.',
+      'Trust OCR for exact strings when legible; use Vision for scene, handwriting, and text OCR missed;',
+      'use Layout for line order and menus/tables.',
+      'Deduplicate; drop obvious OCR noise; keep numbers, prices, dates, names, emails, URLs.',
+      'Output plain text: short paragraphs; use bullet lines where helpful. Match the dominant language of the content.',
+    ].join(' ');
+
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.IMAGE_PIPELINE_FUSE_TIMEOUT_MS ?? 45_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2800,
+          temperature: 0.15,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: bundle },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Image fuse HTTP ${response.status}: ${errBody.slice(0, 400)}`);
+      }
+
+      const json = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const text = json.choices?.[0]?.message?.content?.trim() ?? '';
+      if (!text) {
+        throw new Error('Image fuse empty content');
+      }
+      return text;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async executeAnswerGeneral(question: string): Promise<string> {

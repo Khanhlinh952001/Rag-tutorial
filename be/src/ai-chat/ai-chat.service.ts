@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { DocumentsService } from '../documents/documents.service';
 import { RetrievalService } from '../vector/retrieval/retrieval.service';
 import { LlmService } from '../llm/llm.service';
@@ -29,6 +29,19 @@ export class AiChatService {
     documentId?: string,
     scoreThreshold?: number,
   ) {
+    if (!userId.trim()) {
+      throw new UnauthorizedException('인증이 필요합니다.');
+    }
+    const chatUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!chatUser) {
+      throw new UnauthorizedException(
+        '저장된 계정을 찾을 수 없습니다. DB가 초기화된 경우 브라우저에서 로그아웃 후 다시 로그인해 주세요.',
+      );
+    }
+
     const urlIngest = await this.tryIngestUrlOnlyMessage(userId, question);
     const retrievalDocumentId = documentId ?? urlIngest.documentId;
     const retrievalQuery =
@@ -52,6 +65,8 @@ export class AiChatService {
     ) {
       relevantRetrieved = retrieval.retrieved.slice(0, topK);
     }
+
+    const retrievedForClient = this.enrichRetrievedForClient(relevantRetrieved);
 
     let answer =
       relevantRetrieved.length > 0
@@ -98,7 +113,7 @@ export class AiChatService {
         content: answer,
         metadata: JSON.parse(
           JSON.stringify({
-            retrieved: relevantRetrieved,
+            retrieved: retrievedForClient,
             filteredOutCount: retrieval.retrieved.length - relevantRetrieved.length,
             noContextFallback: relevantRetrieved.length === 0,
             urlIngest: urlIngest.ingested
@@ -114,7 +129,7 @@ export class AiChatService {
     return {
       conversationId: ensuredConversation.id,
       answer,
-      retrieved: relevantRetrieved,
+      retrieved: retrievedForClient,
       appliedScoreThreshold: retrieval.appliedScoreThreshold,
       urlIngest:
         urlIngest.ingested || urlIngest.error
@@ -218,7 +233,7 @@ export class AiChatService {
       scoreThreshold: scoreThreshold ?? null,
       appliedScoreThreshold: retrieval.appliedScoreThreshold,
       total: retrieval.retrieved.length,
-      results: retrieval.retrieved,
+      results: this.enrichRetrievedForClient(retrieval.retrieved),
     };
   }
 
@@ -237,7 +252,7 @@ export class AiChatService {
   }
 
   async getMyConversationDetail(userId: string, conversationId: string) {
-    return this.prisma.conversation.findFirst({
+    const data = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
       include: {
         messages: {
@@ -245,6 +260,34 @@ export class AiChatService {
         },
       },
     });
+    if (!data) {
+      return null;
+    }
+    return {
+      ...data,
+      messages: data.messages.map((m) => {
+        if (m.role !== MessageRole.ASSISTANT || m.metadata == null) {
+          return m;
+        }
+        const md = m.metadata as Record<string, unknown>;
+        if (!Array.isArray(md.retrieved)) {
+          return m;
+        }
+        return {
+          ...m,
+          metadata: {
+            ...md,
+            retrieved: this.enrichRetrievedForClient(
+              md.retrieved as Array<{
+                content: string;
+                score: number;
+                metadata: Record<string, unknown>;
+              }>,
+            ),
+          },
+        };
+      }),
+    };
   }
 
   async deleteMyConversation(userId: string, conversationId: string) {
@@ -304,6 +347,7 @@ export class AiChatService {
             id: true,
             title: true,
             filePath: true,
+            mimeType: true,
           },
         },
       },
@@ -324,6 +368,7 @@ export class AiChatService {
             documentId: chunk.document.id,
             title: chunk.document.title,
             source: chunk.document.filePath,
+            mimeType: chunk.document.mimeType,
             chunkIndex: chunk.chunkIndex,
           } as Record<string, unknown>,
         };
@@ -333,6 +378,30 @@ export class AiChatService {
       .slice(0, topK);
 
     return scored;
+  }
+
+  /** 이미지 문서는 인증된 GET `/documents/:id/asset`로 표시할 수 있도록 상대 경로를 붙인다. */
+  private enrichRetrievedForClient(
+    retrieved: Array<{
+      content: string;
+      score: number;
+      metadata: Record<string, unknown>;
+      imageAssetUrl?: string;
+    }>,
+  ): Array<{
+    content: string;
+    score: number;
+    metadata: Record<string, unknown>;
+    imageAssetUrl?: string;
+  }> {
+    return retrieved.map((item) => {
+      const mime = String(item.metadata?.mimeType ?? '');
+      const docId = String(item.metadata?.documentId ?? '');
+      if (mime.startsWith('image/') && docId.length > 0) {
+        return { ...item, imageAssetUrl: `/documents/${docId}/asset` };
+      }
+      return item;
+    });
   }
 
   private filterRelevantRetrieved(

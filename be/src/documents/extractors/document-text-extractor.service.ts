@@ -3,8 +3,10 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { EmbeddingService } from '../../vector/embeddings/embedding.service';
 import { extractDocxText } from './docx.extractor';
 import { extractHwpText } from './hwp.extractor';
+import { extractImageText } from './image.extractor';
 import { extractPdfText } from './pdf.extractor';
 import { extractPptxText } from './pptx.extractor';
+import { extractJsonText } from './json.extractor';
 import { extractTxtText } from './txt.extractor';
 import { extractXlsxText } from './xlsx.extractor';
 
@@ -18,7 +20,14 @@ const PPT_MIME = 'application/vnd.ms-powerpoint';
 const HWP_MIME = 'application/x-hwp';
 const HWPX_MIME = 'application/haansofthwp';
 const TXT_MIME = 'text/plain';
+const JSON_MIME = 'application/json';
+const JSON_LD_MIME = 'application/ld+json';
+const TEXT_JSON_MIME = 'text/json';
 const PDF_MIME = 'application/pdf';
+const JPG_MIME = 'image/jpeg';
+const PNG_MIME = 'image/png';
+const WEBP_MIME = 'image/webp';
+const GIF_MIME = 'image/gif';
 
 export interface TextChunk {
   index: number;
@@ -51,6 +60,15 @@ export class DocumentTextExtractorService {
         return extractHwpText(filePath);
       case TXT_MIME:
         return extractTxtText(filePath);
+      case JSON_MIME:
+      case JSON_LD_MIME:
+      case TEXT_JSON_MIME:
+        return extractJsonText(filePath);
+      case JPG_MIME:
+      case PNG_MIME:
+      case WEBP_MIME:
+      case GIF_MIME:
+        return extractImageText(filePath);
       default:
         throw new Error(`Unsupported file mime type: ${mimeType}`);
     }
