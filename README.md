@@ -7,7 +7,7 @@
 | 디렉터리 | 설명 |
 |----------|------|
 | `fe/` | Next.js — 채팅(`/chat`), 관리자(`/admin`). 개발 서버 기본 포트 **3003**. |
-| `be/` | NestJS + Prisma — API, 문서 수집, 큐, 임베딩. 기본 포트 **3002**. |
+| `be/` | NestJS + Prisma — API, 문서 수집, 큐, 임베딩. 기본 포트 **3080**. |
 | `docs/` | 상세 안내(한국어): 아키텍처, RAG 흐름, API, 트러블슈팅 — [`docs/PROJECT_GUIDE_KO.md`](docs/PROJECT_GUIDE_KO.md) |
 
 ## 사전 요구 사항
@@ -34,7 +34,7 @@
    pnpm run dev
    ```
 
-3. **프론트엔드**: `fe/.env.example`을 복사해 `fe/.env`로 두거나, `NEXT_PUBLIC_API_BASE_URL=http://localhost:3002`를 맞춘 뒤:
+3. **프론트엔드**: `fe/.env.example`을 복사해 `fe/.env`로 두거나, `NEXT_PUBLIC_API_BASE_URL=http://localhost:3080`를 맞춘 뒤:
 
    ```bash
    cd fe
@@ -42,7 +42,7 @@
    pnpm run dev
    ```
 
-4. 브라우저: UI **http://localhost:3003** — 백엔드 API **http://localhost:3002**.
+4. 브라우저: UI **http://localhost:3003** — 백엔드 API **http://localhost:3080**.
 
 ## 더 읽기
 

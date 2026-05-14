@@ -5,13 +5,68 @@ import { extname } from 'node:path';
 
 @Injectable()
 export class SharedService {
+  /**
+   * Multipart filenames are often UTF-8 bytes mis-decoded as Latin-1 (mojibake).
+   * Do not latin1→utf8 when `raw` already contains real CJK/Hangul (would corrupt in Node).
+   */
   normalizeOriginalName(value?: string): string {
-    const raw = value ?? 'document';
+    const raw = value?.trim() || 'document';
+    if (raw === 'document') return raw;
+
+    let recovered: string;
     try {
-      return Buffer.from(raw, 'latin1').toString('utf8');
+      recovered = Buffer.from(raw, 'latin1').toString('utf8');
     } catch {
       return raw;
     }
+
+    const hangulSyllable = /[\uAC00-\uD7AF]/;
+    const hangulJamo = /[\u1100-\u11FF\u3130-\u318F]/;
+    const cjkHan = /[\u4E00-\u9FFF]/;
+    const kana = /[\u3040-\u30FF]/;
+
+    const rawHasCjk =
+      hangulSyllable.test(raw) ||
+      hangulJamo.test(raw) ||
+      cjkHan.test(raw) ||
+      kana.test(raw);
+    const recoveredHasCjk =
+      hangulSyllable.test(recovered) ||
+      hangulJamo.test(recovered) ||
+      cjkHan.test(recovered) ||
+      kana.test(recovered);
+
+    if (rawHasCjk) {
+      return raw;
+    }
+
+    if (
+      recoveredHasCjk &&
+      recovered !== raw &&
+      !recovered.includes('\uFFFD')
+    ) {
+      return recovered;
+    }
+
+    const latinExtendedNoise = (s: string) =>
+      [...s].filter((ch) => {
+        const c = ch.codePointAt(0) ?? 0;
+        return c >= 0xc0 && c <= 0x024f;
+      }).length;
+
+    const rawNoise = latinExtendedNoise(raw);
+    const recoveredNoise = latinExtendedNoise(recovered);
+    if (
+      !rawHasCjk &&
+      recovered !== raw &&
+      !recovered.includes('\uFFFD') &&
+      rawNoise >= 4 &&
+      recoveredNoise < rawNoise
+    ) {
+      return recovered;
+    }
+
+    return raw;
   }
 
   detectMimeType(file: { mimetype?: string; originalname?: string }): string {
@@ -20,7 +75,7 @@ export class SharedService {
       return incoming;
     }
 
-    const extension = extname(file.originalname ?? '').toLowerCase();
+    const extension = extname(this.normalizeOriginalName(file.originalname ?? '')).toLowerCase();
     switch (extension) {
       case '.pdf':
         return 'application/pdf';
@@ -57,11 +112,15 @@ export class SharedService {
   buildSafeStoredFileName(originalName: string): string {
     const normalizedOriginalName = this.normalizeOriginalName(originalName);
     const suffix = Date.now();
-    const safeBaseName = normalizedOriginalName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[^a-zA-Z0-9-_]/g, '_')
-      .slice(0, 60);
-    return `${safeBaseName || 'document'}-${suffix}${extname(normalizedOriginalName)}`;
+    const ext = extname(normalizedOriginalName);
+    const baseRaw = ext
+      ? normalizedOriginalName.slice(0, -ext.length)
+      : normalizedOriginalName;
+    const safeBaseName = baseRaw
+      .replace(/[/\\?\u0000-\u001f]/g, '_')
+      .trim()
+      .slice(0, 180);
+    return `${safeBaseName || 'document'}-${suffix}${ext || ''}`;
   }
 
   create(createSharedDto: CreateSharedDto) {

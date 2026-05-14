@@ -108,14 +108,17 @@ export default function AdminDocumentsPage() {
     () => false,
   );
 
-  const loadDocuments = useCallback(async () => {
+  const loadDocuments = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
     const token = localStorage.getItem("admin_access_token");
     if (!token) {
       setError("로그인 세션이 없습니다. 다시 로그인해 주세요.");
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const response = await fetch(`${API_BASE}/documents`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -140,7 +143,9 @@ export default function AdminDocumentsPage() {
         e instanceof Error ? e.message : "네트워크 오류가 발생했습니다.",
       );
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -286,7 +291,7 @@ export default function AdminDocumentsPage() {
     );
     if (!hasInFlight) return;
     const id = window.setInterval(() => {
-      void loadDocuments();
+      void loadDocuments({ silent: true });
     }, 4000);
     return () => window.clearInterval(id);
   }, [documents, loadDocuments]);
@@ -413,7 +418,7 @@ export default function AdminDocumentsPage() {
       setWebUrl("");
       setWebTitle("");
       setIsUploadDialogOpen(false);
-      await loadDocuments();
+      void loadDocuments({ silent: true });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "네트워크 오류가 발생했습니다.",
@@ -586,7 +591,7 @@ export default function AdminDocumentsPage() {
       setDevWebTitle("");
       setDiscoverMaxPages("");
       setIsWebPreviewDialogOpen(false);
-      await loadDocuments();
+      void loadDocuments({ silent: true });
     } catch (e) {
       setWebPreviewError(
         e instanceof Error ? e.message : "네트워크 오류가 발생했습니다.",
@@ -668,7 +673,7 @@ export default function AdminDocumentsPage() {
       setSelectedFiles([]);
       setIsUploadDialogOpen(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      await loadDocuments();
+      void loadDocuments({ silent: true });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "네트워크 오류가 발생했습니다.",
@@ -737,27 +742,36 @@ export default function AdminDocumentsPage() {
       return;
     }
 
+    setDeleteTarget(null);
     setDeleting(true);
     setError(null);
     setInfo(null);
+
+    let previousDocs: DocumentItem[] = [];
+    setDocuments((prev) => {
+      previousDocs = prev;
+      return prev.filter((d) => d.id !== id);
+    });
+
     try {
       const response = await fetch(`${API_BASE}/documents/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
+        setDocuments(previousDocs);
         setError("삭제에 실패했습니다.");
         return;
       }
       setInfo("문서가 삭제되었습니다.");
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
+      void loadDocuments({ silent: true });
     } catch (e) {
+      setDocuments(previousDocs);
       setError(
         e instanceof Error ? e.message : "네트워크 오류가 발생했습니다.",
       );
     } finally {
       setDeleting(false);
-      setDeleteTarget(null);
     }
   }
 
@@ -923,9 +937,9 @@ export default function AdminDocumentsPage() {
         );
       }
       setKnowledgeConfig((prev) => ({ ...prev, password: "" }));
-      await loadKnowledgeConfig();
-      await loadDocuments();
       setIsKnowledgeDialogOpen(false);
+      void loadKnowledgeConfig();
+      void loadDocuments({ silent: true });
     } catch (e) {
       toast.error(
         e instanceof Error
@@ -995,7 +1009,7 @@ export default function AdminDocumentsPage() {
         );
       }
       toast.success(`재학습 완료: ${tableCount}개 테이블, ${indexed}개 청크`);
-      await loadDocuments();
+      void loadDocuments({ silent: true });
     } catch (e) {
       toast.error(
         e instanceof Error ? e.message : "재학습 중 네트워크 오류가 발생했습니다.",

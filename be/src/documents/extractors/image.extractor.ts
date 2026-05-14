@@ -65,6 +65,8 @@ export type ImageProbeSignals = {
   lineCount: number;
   /** Mean characters per non-empty line (PSM 3 probe). */
   avgLineLength: number;
+  /** Full OCR text from the same PSM-3 probe pass (avoids a duplicate Tesseract run later). */
+  psm3Text: string;
 };
 
 /** One fast OCR pass (PSM 3): line stats for classifier + importance scoring. */
@@ -85,7 +87,7 @@ export async function probeImageSignals(filePath: string): Promise<ImageProbeSig
     const charCount = trimmed.length;
     const lineCount = lines.length;
     const avgLineLength = lineCount > 0 ? charCount / lineCount : charCount;
-    return { charCount, lineCount, avgLineLength };
+    return { charCount, lineCount, avgLineLength, psm3Text: trimmed };
   } finally {
     await worker.terminate();
   }
@@ -97,19 +99,30 @@ export async function probeImageTextLength(filePath: string): Promise<number> {
   return s.charCount;
 }
 
-export async function extractImageText(filePath: string): Promise<string> {
+export async function extractImageText(
+  filePath: string,
+  options?: { reusePsm3Text?: string },
+): Promise<string> {
+  const reuse = options?.reusePsm3Text?.trim();
   const language = resolveLanguages();
   const worker = await createWorker(language);
   try {
     const primaryPsm = parsePrimaryPsm();
     const minChars = fallbackMinChars();
 
+    const runPsm = async (psm: string) => {
+      if (psm === '3' && reuse != null && reuse.length > 0) {
+        return reuse;
+      }
+      return recognizeWithPsm(worker, filePath, psm);
+    };
+
     if (ocrStrategy() === 'fast') {
-      let text = await recognizeWithPsm(worker, filePath, primaryPsm);
+      let text = await runPsm(primaryPsm);
       if (text.length < minChars) {
         for (const psm of ['11', '4', '3']) {
           if (psm === primaryPsm) continue;
-          const alt = await recognizeWithPsm(worker, filePath, psm);
+          const alt = await runPsm(psm);
           if (alt.length > text.length) text = alt;
           if (text.length >= minChars) break;
         }
@@ -120,7 +133,7 @@ export async function extractImageText(filePath: string): Promise<string> {
     const psms = uniquePsms(primaryPsm, ['3', '11', '4']);
     const parts: string[] = [];
     for (const psm of psms) {
-      parts.push(await recognizeWithPsm(worker, filePath, psm));
+      parts.push(await runPsm(psm));
     }
     return pickLongest(parts).trim();
   } finally {

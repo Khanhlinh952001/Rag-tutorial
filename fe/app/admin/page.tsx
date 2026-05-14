@@ -48,7 +48,7 @@ const DOC_STATUS_LABEL: Record<DocStatusKey, string> = {
   FAILED: "실패",
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3002";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3080";
 
 function readStoredUser(): AdminUser | null {
   if (typeof window === "undefined") return null;

@@ -536,7 +536,7 @@ docker compose up -d
 DATABASE_URL="postgresql://admin:123456@localhost:5433/myapp"
 JWT_SECRET="길고-난수-같은-문자열"
 OPENAI_API_KEY="sk-..."
-PORT=3002
+PORT=3080
 REDIS_URL="redis://localhost:6379"
 VECTOR_STORE=pgvector
 ```
@@ -552,7 +552,7 @@ pnpm run db:seed
 pnpm run dev
 ```
 
-브라우저에서 `http://localhost:3002` 로 헬스 확인 가능.
+브라우저에서 `http://localhost:3080` 로 헬스 확인 가능.
 
 ### 4) Frontend
 
@@ -560,7 +560,7 @@ pnpm run dev
 cd fe
 pnpm install
 cp .env.example .env.local
-# .env.local 안의 NEXT_PUBLIC_API_BASE_URL=http://localhost:3002 확인
+# .env.local 안의 NEXT_PUBLIC_API_BASE_URL=http://localhost:3080 확인
 pnpm run dev
 ```
 

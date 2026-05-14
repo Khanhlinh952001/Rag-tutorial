@@ -536,7 +536,7 @@ Ví dụ (sửa theo máy bạn):
 DATABASE_URL="postgresql://admin:123456@localhost:5433/myapp"
 JWT_SECRET="chuỗi-dài-ngẫu-nhiên"
 OPENAI_API_KEY="sk-..."
-PORT=3002
+PORT=3080
 REDIS_URL="redis://localhost:6379"
 VECTOR_STORE=pgvector
 ```
@@ -552,7 +552,7 @@ pnpm run db:seed
 pnpm run dev
 ```
 
-Mở `http://localhost:3002` để kiểm tra health (nếu có).
+Mở `http://localhost:3080` để kiểm tra health (nếu có).
 
 ### 4) Frontend
 
@@ -560,7 +560,7 @@ Mở `http://localhost:3002` để kiểm tra health (nếu có).
 cd fe
 pnpm install
 cp .env.example .env.local
-# Trong .env.local: NEXT_PUBLIC_API_BASE_URL=http://localhost:3002
+# Trong .env.local: NEXT_PUBLIC_API_BASE_URL=http://localhost:3080
 pnpm run dev
 ```
 

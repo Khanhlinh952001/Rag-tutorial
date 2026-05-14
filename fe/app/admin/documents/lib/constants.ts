@@ -3,7 +3,7 @@ import type { FilterKey, KnowledgeConfigForm } from "./types.js";
 export const KNOWLEDGE_SUMMARY_STORAGE_KEY = "admin_knowledge_sync_summary";
 
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3002";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3080";
 
 /** 웹 스캔 UI 등 — NEXT_PUBLIC_WEB_DEV_PANEL=false 이면 숨김 (기본: 항상 표시) */
 export const SHOW_WEB_DEV_PANEL =

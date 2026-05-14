@@ -26,7 +26,7 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: "500M",
-      env: { NODE_ENV: "production" },
+      env: { NODE_ENV: "production", PORT: "3080" },
     },
     {
       name: "rag-tutorial-fe",

@@ -80,6 +80,7 @@ export class ImageIngestService {
       const text = await this.documentTextExtractorService.extractByMimeType(
         filePath,
         mimeType,
+        { reusePsm3Text: signals.psm3Text },
       );
       return { text, ingestMethod: 'ocr', probeChars };
     }
@@ -93,6 +94,7 @@ export class ImageIngestService {
       const text = await this.documentTextExtractorService.extractByMimeType(
         filePath,
         mimeType,
+        { reusePsm3Text: signals.psm3Text },
       );
       return { text, ingestMethod: 'ocr-fallback', probeChars };
     }
@@ -133,6 +135,7 @@ export class ImageIngestService {
       ocrText = await this.documentTextExtractorService.extractByMimeType(
         filePath,
         mimeType,
+        { reusePsm3Text: signals.psm3Text },
       );
     }
 
@@ -157,6 +160,7 @@ export class ImageIngestService {
       ocrText = await this.documentTextExtractorService.extractByMimeType(
         filePath,
         mimeType,
+        { reusePsm3Text: signals.psm3Text },
       );
     }
 

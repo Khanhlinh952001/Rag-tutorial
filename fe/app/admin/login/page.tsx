@@ -19,7 +19,7 @@ export default function AdminLoginPage() {
   const router = useRouter();
   const isDev = process.env.NODE_ENV === "development";
   const defaultApiBase = useMemo(
-    () => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3002",
+    () => process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3080",
     [],
   );
   const defaultAdminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? "admin@local.dev";

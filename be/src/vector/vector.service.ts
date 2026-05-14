@@ -1,9 +1,22 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { CreateVectorDto } from './dto/create-vector.dto';
 import { UpdateVectorDto } from './dto/update-vector.dto';
 import { EmbeddingService } from './embeddings/embedding.service';
 import { QdrantService } from './qdrant.service';
 import { PgVectorService } from './pgvector/pgvector.service';
+
+/** Qdrant only accepts point ids as unsigned int or UUID; Prisma `cuid` strings cause HTTP 400. */
+function stablePointUuid(documentId: string, chunkIndex: number): string {
+  const digest = createHash('sha256')
+    .update(`chunk:${documentId}:${chunkIndex}`)
+    .digest();
+  const buf = Buffer.from(digest.subarray(0, 16));
+  buf[6] = (buf[6]! & 0x0f) | 0x40;
+  buf[8] = (buf[8]! & 0x3f) | 0x80;
+  const h = buf.toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
 
 export interface ChunkForIndexing {
   index: number;
@@ -52,7 +65,7 @@ export class VectorService {
     await backend.ensureCollection(this.embeddingService.vectorSize);
 
     const points = input.chunks.map((chunk, i) => ({
-        id: `${input.documentId}-${chunk.index}`,
+        id: stablePointUuid(input.documentId, chunk.index),
         vector: vectors[i],
         payload: {
           documentId: input.documentId,

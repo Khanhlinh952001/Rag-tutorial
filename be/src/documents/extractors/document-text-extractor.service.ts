@@ -44,7 +44,11 @@ export class DocumentTextExtractorService {
     private readonly embeddingService: EmbeddingService,
   ) {}
 
-  async extractByMimeType(filePath: string, mimeType: string): Promise<string> {
+  async extractByMimeType(
+    filePath: string,
+    mimeType: string,
+    imageExtractOpts?: { reusePsm3Text?: string },
+  ): Promise<string> {
     switch (mimeType) {
       case PDF_MIME:
         return extractPdfText(filePath);
@@ -68,7 +72,7 @@ export class DocumentTextExtractorService {
       case PNG_MIME:
       case WEBP_MIME:
       case GIF_MIME:
-        return extractImageText(filePath);
+        return extractImageText(filePath, imageExtractOpts);
       default:
         throw new Error(`Unsupported file mime type: ${mimeType}`);
     }

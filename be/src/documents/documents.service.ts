@@ -869,17 +869,11 @@ export class DocumentsService {
         })),
       });
 
-      const vectorIdByChunkIndex = new Map<number, string>();
-      for (const vectorId of indexResult.vectorIds) {
-        const chunkIndexRaw = vectorId.split('-').pop();
-        const chunkIndex = Number(chunkIndexRaw);
-        if (!Number.isFinite(chunkIndex)) continue;
-        vectorIdByChunkIndex.set(chunkIndex, vectorId);
-      }
-
-      for (const chunk of document.chunks) {
-        const vectorId = vectorIdByChunkIndex.get(chunk.chunkIndex);
-        if (!vectorId) continue;
+      const vectorIds = indexResult.vectorIds;
+      for (let i = 0; i < document.chunks.length; i += 1) {
+        const chunk = document.chunks[i];
+        const vectorId = vectorIds[i];
+        if (!chunk || !vectorId) continue;
         await this.prisma.documentChunk.update({
           where: { id: chunk.id },
           data: { vectorId },

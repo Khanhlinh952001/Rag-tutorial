@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3002";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3080";
 
 type UserProfile = {
   id: string;
