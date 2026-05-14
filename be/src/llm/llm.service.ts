@@ -8,45 +8,29 @@ function parseLlmConcurrent(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 16;
 }
 
-export type RagContextBlock = {
-  content: string;
-  metadata?: Record<string, unknown>;
-};
-
 @Injectable()
 export class LlmService {
   private readonly runWithLlmLimit = createAsyncConcurrencyLimiter(parseLlmConcurrent());
 
-  async answer(question: string, contexts: RagContextBlock[]): Promise<string> {
+  async answer(question: string, contexts: string[]): Promise<string> {
     return this.runWithLlmLimit(() => this.executeAnswer(question, contexts));
   }
 
-  private async executeAnswer(question: string, contexts: RagContextBlock[]): Promise<string> {
+  private async executeAnswer(question: string, contexts: string[]): Promise<string> {
     const apiKey = process.env.OPENAI_API_KEY;
-    const bodies = contexts.map((c) => c.content);
     if (!apiKey) {
-      return `LLM API 키가 설정되지 않았습니다. 검색된 컨텍스트:\n\n${bodies.slice(0, 3).join('\n\n---\n\n')}`;
+      return `LLM API 키가 설정되지 않았습니다. 검색된 컨텍스트:\n\n${contexts.slice(0, 3).join('\n\n---\n\n')}`;
     }
 
-    const maxCtx = Math.min(
-      Math.max(1, Number(process.env.RAG_PROMPT_MAX_CONTEXTS ?? 8)),
-      12,
-    );
-    const sliced = contexts.slice(0, maxCtx);
-    const contextSection = this.formatGroundedContextSection(sliced);
-
     const prompt = [
-      'You are a careful assistant for retrieval-grounded (RAG) answers.',
-      'Rules:',
-      '- Use ONLY the numbered context excerpts below. Every substantive claim must be supported there; add inline citations like [1] or [2][3] immediately after the sentence or clause they support.',
-      '- If an excerpt is irrelevant, ignore it. If none of the excerpts answer the question, say clearly that the provided materials are insufficient — do not guess or use outside knowledge for document-specific facts.',
-      '- Do not invent names, dates, figures, or policies that are not stated in the excerpts.',
-      '- Write in Markdown: ## for section titles, short paragraphs, bullet lists when listing facts, **bold** for names, numbers, and key terms.',
+      'You are a helpful assistant. Answer using the provided context.',
+      'If context is insufficient, say so clearly.',
+      'Write in Markdown: use ## for section titles, short paragraphs, bullet lists when listing facts, and **bold** for names, numbers, and key terms.',
       '',
       `Question: ${question}`,
       '',
-      'Context excerpts (citation numbers refer to these blocks):',
-      contextSection,
+      'Context:',
+      contexts.slice(0, 5).join('\n\n'),
     ].join('\n');
 
     const baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1';
@@ -87,13 +71,13 @@ export class LlmService {
           if (transportError) {
             return this.buildExtractiveFallbackAnswer(
               question,
-              bodies,
+              contexts,
               `LLM transport error: ${transportError}`,
             );
           }
           return this.buildExtractiveFallbackAnswer(
             question,
-            bodies,
+            contexts,
             `LLM timeout ${requestTimeoutMs}ms`,
           );
         }
@@ -109,7 +93,7 @@ export class LlmService {
         }
         return this.buildExtractiveFallbackAnswer(
           question,
-          bodies,
+          contexts,
           'LLM empty output',
         );
       }
@@ -118,7 +102,7 @@ export class LlmService {
       if (!shouldRetry || attempt === maxAttempts) {
         return this.buildExtractiveFallbackAnswer(
           question,
-          bodies,
+          contexts,
           `LLM failed ${response.status}`,
         );
       }
@@ -128,30 +112,9 @@ export class LlmService {
 
     return this.buildExtractiveFallbackAnswer(
       question,
-      bodies,
+      contexts,
       'LLM retry exhausted',
     );
-  }
-
-  private formatGroundedContextSection(blocks: RagContextBlock[]): string {
-    return blocks
-      .map((block, i) => {
-        const n = i + 1;
-        const meta = block.metadata ?? {};
-        const title = meta.title != null ? String(meta.title).trim() : '';
-        const page = meta.page;
-        const pageStr =
-          typeof page === 'number' && Number.isFinite(page) ? `p.${page}` : '';
-        const docId = meta.documentId != null ? String(meta.documentId).trim() : '';
-        const parts = [`[${n}]`];
-        if (title) parts.push(`title="${title.replace(/"/g, '\\"')}"`);
-        if (pageStr) parts.push(`page=${pageStr}`);
-        if (docId) parts.push(`documentId=${docId}`);
-        const header = parts.join(' ');
-        const body = (block.content ?? '').trim();
-        return `${header}\n${body}`;
-      })
-      .join('\n\n---\n\n');
   }
 
   async answerGeneral(question: string): Promise<string> {
