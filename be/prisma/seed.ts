@@ -1,6 +1,5 @@
 import { createPrismaClient } from "../src/lib/prisma";
 import { hash } from "bcryptjs";
-import { UserRole } from "../src/generated/prisma/enums";
 
 const prisma = createPrismaClient();
 
@@ -19,13 +18,13 @@ async function main() {
     where: { email: adminEmail },
     update: {
       name: adminName,
-      role: UserRole.ADMIN,
+      role: "ADMIN",
       password: adminPasswordHash,
     },
     create: {
       email: adminEmail,
       name: adminName,
-      role: UserRole.ADMIN,
+      role: "ADMIN",
       password: adminPasswordHash,
     },
   });
@@ -34,13 +33,13 @@ async function main() {
     where: { email: userEmail },
     update: {
       name: userName,
-      role: UserRole.USER,
+      role: "USER",
       password: userPasswordHash,
     },
     create: {
       email: userEmail,
       name: userName,
-      role: UserRole.USER,
+      role: "USER",
       password: userPasswordHash,
     },
   });

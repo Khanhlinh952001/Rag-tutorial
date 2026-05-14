@@ -11,7 +11,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma generate && prisma db seed"
   },
   "dependencies": {
     "@langchain/textsplitters": "^1.0.1",

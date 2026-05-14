@@ -73,6 +73,7 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
 }
 
 export default function AdminDashboardPage() {
+  const isDev = process.env.NODE_ENV === "development";
   const [user] = useState<AdminUser | null>(() => readStoredUser());
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -187,9 +188,12 @@ export default function AdminDashboardPage() {
             </span>
           )}
         </p>
-        <p className="text-xs text-muted-foreground">
-          API 베이스 URL: <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{API_BASE}</code>
-        </p>
+        {isDev ? (
+          <p className="text-xs text-muted-foreground">
+            API 베이스 URL:{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{API_BASE}</code>
+          </p>
+        ) : null}
       </header>
 
       <section>
