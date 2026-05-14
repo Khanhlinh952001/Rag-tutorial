@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: myapp
+      POSTGRES_DB: rag_tutorial
     ports:
       - "5433:5432"
     volumes:

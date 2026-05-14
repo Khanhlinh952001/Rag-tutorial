@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { VectorService } from '../vector/vector.service';
 import { ExternalDbType } from '../generated/prisma/enums';
@@ -9,6 +9,8 @@ type ExternalRow = Record<string, unknown>;
 
 @Injectable()
 export class KnowledgeSourceService {
+  private readonly logger = new Logger(KnowledgeSourceService.name);
+
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
@@ -115,6 +117,35 @@ export class KnowledgeSourceService {
     };
   }
 
+  /** discover 응답 직전: 비밀번호 없이 연결 맥락·테이블 개수 로그 (0개일 때 WARN). */
+  private logDiscoverTablesOutcome(
+    dbType: ExternalDbType,
+    dto: DiscoverKnowledgeSchemaDto,
+    effectivePostgresSchema: string | undefined,
+    tables: string[],
+  ): void {
+    const count = tables.length;
+    if (dbType === ExternalDbType.POSTGRES) {
+      const schema = effectivePostgresSchema ?? (dto.schema?.trim() || 'public');
+      this.logger.log(
+        `[discover] POSTGRES host=${dto.host} port=${dto.port ?? 5432} database=${dto.database} schema=${schema} baseTableCount=${count}`,
+      );
+    } else if (dbType === ExternalDbType.MYSQL) {
+      this.logger.log(
+        `[discover] MYSQL host=${dto.host} port=${dto.port ?? 3306} database=${dto.database} tableCount=${count}`,
+      );
+    } else {
+      this.logger.log(
+        `[discover] SQLITE path=${dto.sqlitePath?.trim() ?? '(empty)'} tableCount=${count}`,
+      );
+    }
+    if (count === 0) {
+      this.logger.warn(
+        '[discover] 테이블 0개: Postgres는 해당 스키마의 BASE TABLE만 포함(뷰 제외), MySQL은 database명, SQLite는 Nest 프로세스가 읽을 수 있는 경로, Docker에서는 API 서버 기준으로 닿는 host(컨테이너 안 localhost 주의)를 확인하세요.',
+      );
+    }
+  }
+
   async discoverSchema(dto: DiscoverKnowledgeSchemaDto) {
     const dbType = this.toDbType(dto.dbType);
     this.validateConnectionOnly(dbType, dto);
@@ -158,6 +189,7 @@ export class KnowledgeSourceService {
             safeTableName,
           ).catch((error: unknown) => this.rethrowExternalDbError(error))
         : [];
+      this.logDiscoverTablesOutcome(ExternalDbType.POSTGRES, dto, schema, tables);
       return { dbType, schema, tables, columns, sampleRows };
     }
 
@@ -193,6 +225,7 @@ export class KnowledgeSourceService {
             safeTableName,
           ).catch((error: unknown) => this.rethrowExternalDbError(error))
         : [];
+      this.logDiscoverTablesOutcome(ExternalDbType.MYSQL, dto, undefined, tables);
       return { dbType, tables, columns, sampleRows };
     }
 
@@ -213,6 +246,7 @@ export class KnowledgeSourceService {
           this.rethrowExternalDbError(error),
         )
       : [];
+    this.logDiscoverTablesOutcome(ExternalDbType.SQLITE, dto, undefined, tables);
     return { dbType, tables, columns, sampleRows };
   }
 
