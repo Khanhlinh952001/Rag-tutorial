@@ -108,10 +108,11 @@ export class DocumentTextExtractorService {
     }
 
     const strategy = (process.env.CHUNKING_STRATEGY ?? 'recursive').toLowerCase();
+    const separators = this.buildChunkSeparators(text);
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize,
       chunkOverlap,
-      separators: ['\n\n', '\n', '. ', ' ', ''],
+      separators,
     });
 
     const pages =
@@ -139,8 +140,76 @@ export class DocumentTextExtractorService {
           metadata: { page: entry.page },
         });
       });
-      return chunks;
+      const merged = this.mergeTinyTrailingChunks(
+        chunks,
+        Number(process.env.CHUNK_MERGE_MIN_LEN ?? 140),
+      );
+      return merged.map((c, i) => ({ ...c, index: i }));
     });
+  }
+
+  /**
+   * Prefer paragraph / heading / CJK sentence boundaries before word-level splits.
+   */
+  private buildChunkSeparators(sampleText: string): string[] {
+    const core: string[] = [
+      '\n\n',
+      '\n## ',
+      '\n### ',
+      '\n#### ',
+      '\n# ',
+      '\n',
+      '。\n',
+      '！\n',
+      '？\n',
+      '…\n',
+      '。 ',
+      '！ ',
+      '？ ',
+      '。',
+      '！',
+      '？',
+      '. ',
+      '! ',
+      '? ',
+      ' ',
+      '',
+    ];
+    const hangul = /[\uAC00-\uD7AF]/.test(sampleText);
+    if (!hangul) {
+      return core;
+    }
+    const koClause: string[] = [
+      '니다.\n',
+      '습니다.\n',
+      '어요.\n',
+      '예요.\n',
+      '니다. ',
+      '습니다. ',
+      '요. ',
+    ];
+    return [...koClause, ...core];
+  }
+
+  /** Merge very small chunks into the previous block to avoid sparse embeddings. */
+  private mergeTinyTrailingChunks(chunks: TextChunk[], minLen: number): TextChunk[] {
+    if (!Number.isFinite(minLen) || minLen <= 0 || chunks.length <= 1) {
+      return chunks;
+    }
+    const out: TextChunk[] = [];
+    for (const ch of chunks) {
+      if (out.length === 0) {
+        out.push({ ...ch });
+        continue;
+      }
+      const prev = out[out.length - 1];
+      if (ch.content.length < minLen) {
+        prev.content = `${prev.content}\n\n${ch.content}`.trim();
+      } else {
+        out.push({ ...ch });
+      }
+    }
+    return out;
   }
 
   private async semanticSplit(
@@ -149,7 +218,7 @@ export class DocumentTextExtractorService {
     chunkSize: number,
   ): Promise<Array<{ content: string; page: number | null }>> {
     const sentences = text
-      .split(/(?<=[.!?])\s+|\n+/)
+      .split(/(?<=[.!?。！？…])\s+|\n+/)
       .map((s) => s.trim())
       .filter(Boolean);
     if (sentences.length <= 1) {

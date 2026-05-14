@@ -72,9 +72,12 @@ export class AiChatService {
       relevantRetrieved.length > 0
         ? await this.llmService.answer(
             urlIngest.urlOnly
-              ? `사용자가 웹 페이지 URL만 입력했습니다. 아래 컨텍스트만 근거로 이 페이지를 요약·설명하세요. Markdown으로 작성하세요(## 소제목, 짧은 단락, 필요 시 불릿, 회사명·인명·수치는 **굵게**). (원문: ${question})`
+              ? `사용자가 웹 페이지 URL만 입력했습니다. 아래 컨텍스트만 근거로 이 페이지를 요약·설명하세요. 각 주장 뒤에 해당 근거 번호를 [1] 형식으로 붙이세요. Markdown으로 작성하세요(## 소제목, 짧은 단락, 필요 시 불릿, 회사명·인명·수치는 **굵게**). (원문: ${question})`
               : question,
-            relevantRetrieved.map((r) => r.content),
+            relevantRetrieved.map((r) => ({
+              content: r.content,
+              metadata: r.metadata,
+            })),
           )
         : await this.llmService.answerGeneral(question);
 
